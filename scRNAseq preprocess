@@ -1,0 +1,294 @@
+library(Seurat)
+
+data<-read.table("data.txt",h=T)
+
+meta<-read.table("ok.txt",h=T)
+
+head(data[1:5,1:5])
+head(meta)
+
+
+cml <- CreateSeuratObject(counts = data, project = "sccml", min.cells = 3, min.features = 200)
+
+cml <- AddMetaData(object = cml,  metadata = meta)
+
+x = cml[[]]
+
+FeatureScatter(cml, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+
+cml <- subset(cml, subset = nFeature_RNA > 2500 & nFeature_RNA < 8000)
+
+FeatureScatter(cml, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+
+cml <- subset(cml, subset = nCount_RNA > 100000 & nCount_RNA < 1000000)
+
+FeatureScatter(cml, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+
+cml <- NormalizeData(cml)
+
+cml <- FindVariableFeatures(cml, selection.method = "vst", nfeatures = 2000)
+
+top30 <- head(VariableFeatures(cml), 30)
+
+plot1 <- VariableFeaturePlot(cml)
+plot2 <- LabelPoints(plot = plot1, points = top30, repel = TRUE)
+plot2
+
+all.genes <- rownames(cml)
+cml <- ScaleData(cml, features = all.genes)
+
+
+
+cml <- RunPCA(cml, features = VariableFeatures(object = cml))
+
+VizDimLoadings(cml, dims = 1:2, reduction = "pca")
+
+DimPlot(cml, reduction = "pca", group.by="Stage2")
+#cml <- RunPCA(cml, npcs = 50, verbose = FALSE)
+ElbowPlot(cml,n=50)
+DimPlot(cml, reduction = "pca", group.by="Stage1",pt.size=2)
+
+cml <- RunUMAP(cml, reduction = "pca", dims = 1:30)
+DimPlot(cml, reduction = "umap", group.by="Stage1",pt.size=1)
+
+cml <- RunTSNE(cml, reduction = "pca", dims = 1:30)
+DimPlot(cml, reduction = "tsne", group.by="Stage2",pt.size=1)
+
+DimPlot(cml, reduction = "tsne", group.by="idents",pt.size=2)
+
+#set identities with meta column
+Idents(object = cml) <- 'Stage1'
+Idents(object = cml)
+
+#subset blastcrisis preblastcrisis diagnosis
+
+
+library(dplyr)
+small<-subset(x = cml, idents = c("diagnosis", "blastcrisis"))
+small <- NormalizeData(small)
+
+all.genes <- rownames(small)
+small <- ScaleData(small, features = all.genes)
+
+small <- RunPCA(small, npcs = 30, verbose = FALSE)
+ElbowPlot(small,n=30)
+
+DimPlot(small, reduction = "pca", group.by="Stage1",pt.size=2)
+
+small <- RunUMAP(small, reduction = "pca", dims = 1:30)
+DimPlot(small, reduction = "umap", group.by="Stage1",pt.size=2)
+
+small <- RunTSNE(small, reduction = "pca", dims = 1:30)
+DimPlot(small, reduction = "tsne", group.by="Stage1",pt.size=1.5)
+
+DimHeatmap(object = small, reduction = "pca", cells = 200,nfeatures = 40)
+
+
+
+
+markers <- FindMarkers(small,  ident.1 = 'blastcrisis',ident.2 = 'diagnosis', min.pct = 0.25, min.diff.pct = 0.25)
+
+FeaturePlot(small, features = c("TRIM28"),min.cutoff = "q9",cols=c("pink","black"),split.by= "Responderstatus",reduction = "tsne",pt.size=0.5)
+VlnPlot(small, features = c("TRIM28"), slot = "counts", log = F,pt.size=2,group.by = "BCRABLstatus",split.by = "Responderstatus2")
+VlnPlot(small, features = c("TRIM28"), slot = "counts", log = F,pt.size=1,group.by = "Stage1")
+VlnPlot(small, features = c("TRIM28"), slot = "counts", log = F,pt.size=1,group.by = "Responderstatus")
+
+
+save(small,file="diagbc.RDA")
+
+#export
+counts <- GetAssayData(object = small,  slot = "counts")
+expr <- as(Class = 'matrix', object = counts)
+x = small[[]]
+write.table(x,file="smallmeta2020.txt")
+
+
+load("diagbc.RDA")
+
+
+#random subset sampling 25 cells by group
+n.cells <- 25
+subset <- SubsetData(small, max.cells.per.ident = n.cells, random.seed = 1265)
+sub = subset[[]]
+write.table(sub,file="submeta2020.txt")
+mat<-GetAssayData(object = subset, assay = "RNA",slot='counts')
+expr<-as.data.frame(mat)
+write.table(expr,file="subdata2020.txt")
+
+
+
+## subset only diagnosis cells to see kat5 heterogeneity
+
+dia<-subset(x = cml, idents = c("diagnosis"))
+dia <- NormalizeData(dia)
+
+all.genes <- rownames(dia)
+dia <- ScaleData(dia, features = all.genes)
+
+dia <- RunPCA(dia, npcs = 30, verbose = FALSE)
+ElbowPlot(dia,n=30)
+library(pals)
+DimPlot(small, reduction = "tsne", group.by="Stage2",pt.size=1)
+
+
+dia <- RunTSNE(dia, reduction = "pca", dims = 1:20)
+DimPlot(dia, reduction = "tsne", group.by="BCRABLstatus",pt.size=1)
+DimPlot(dia, reduction = "tsne", group.by="batch",pt.size=1)
+
+
+
+FeaturePlot(dia, features = c("KAT5"),min.cutoff = "q9",cols=c("pink","black"),split.by= "BCRABLstatus",reduction = "tsne",pt.size=0.5)
+VlnPlot(small, features = c("DNM1L"), slot = "counts", log = F,pt.size=2)
+
+## clustering
+dia <- FindNeighbors(dia, dims = 1:20)
+dia <- FindClusters(dia, resolution = 0.5)
+DimPlot(dia, reduction = "tsne",pt.size=1)
+
+# markers cluster 2
+cluster2.markers <- FindMarkers(dia, ident.1 = 2, min.pct = 0.25)
+head(cluster2.markers, n = 50)
+
+
+## cell cycle
+
+
+# A list of cell cycle markers, from Tirosh et al, 2015, is loaded with Seurat.  We can
+# segregate this list into markers of G2/M phase and markers of S phase
+s.genes <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.genes
+
+dia<- CellCycleScoring(dia, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+
+# view cell cycle scores and phase assignments
+x=dia[[]]
+
+
+library(ggplot2)
+
+df <- data.frame(x = x$seurat_clusters, z = x$Phase)
+df <- as.data.frame(with(df, prop.table(table(x, z), margin = NULL)))
+
+
+
+plot <- ggplot(data = df, aes(x = x, y = Freq, fill = z)) + 
+  geom_bar(width = 0.9, position = "fill", stat = "identity") + 
+  scale_fill_brewer(palette = "Paired") + 
+  scale_y_continuous(expand = c(0.01, 0), labels = scales::percent_format()) + 
+  xlab("patients") + 
+  ylab("Percent") + 
+  labs(fill = "seurat_clusters") + 
+  theme_classic(base_size = 12, base_family = "sans") + 
+  theme(legend.position = "right") + coord_flip()
+plot
+
+
+
+
+
+
+## markers  for each cluster
+library(dplyr)
+pbmc.markers <- FindAllMarkers(pbmc, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+pbmc.markers %>%
+  group_by(cluster) %>%
+  slice_max(n = 2, order_by = avg_log2FC)
+
+
+save(dia,file="diagnosis.rda")
+dia <- RunPCA(dia, features = c(s.genes, g2m.genes))
+DimPlot(dia,reduction="pca",group.by = "Seurat_clusters")
+
+RidgePlot(dia,features=c("PCNA","GMNN","CKS1B"),group.by="seurat_clusters")
+DimHeatmap(dia,dims=1,nfeatures=50)
+
+
+
+
+markers <- c(
+  'DNM1L',
+  'JAM3',
+  'TEK',
+  'SEPT2',
+  'ATAD3A',
+  'PROM1',
+  'SLC2A1',
+  'PPARG',
+  'PRDM16',
+	'TFRC',
+	'ATG12',
+	'MTCH2'	
+)
+
+
+
+neg.markers<-c("PINK1","SELL","MFN2","SIRT7","CD63","NUMB","HK2","PML","LAMP2","CD53","COX8A","LAMP1","SEPT7","SIRT1")
+
+library(ggplot2)
+library(viridis)
+DotPlot(small, features = neg.markers) +
+  geom_point(aes(size=pct.exp), shape = 21, colour="black", stroke=0.5) +
+  scale_colour_viridis(option="magma") +
+  guides(size=guide_legend(override.aes=list(shape=21, colour="black", fill="white")))+ scale_size(breaks = c(0, 25, 50, 75))+
+	 theme(axis.text.x = element_text(angle = 90, vjust = 1, hjust=1))
+
+
+x<-small[[]]
+head(x)
+library(ggplot2)
+library(RColorBrewer)
+Idents(object = small) <- 'Stage1'
+Idents(object = small)
+
+FeaturePlot(small,
+            features = "HK2", label = TRUE, repel = TRUE,reduction = "tsne",pt.size=2) +
+            #scale_colour_gradientn(colours = rev(brewer.pal(n = 12, name = "RdBu"))) +
+		 scale_colour_gradientn(colours = rev(brewer.pal(n = 10, name = "Spectral")))+ 
+		ggtitle("HK2")
+
+
+
+risk.score <- list(c("SELL","LAMP2","CD63","NUMB","HK2"))
+small <- AddModuleScore(
+  object = small,
+  features = risk.score, name = 'risk.score2')
+
+FeaturePlot(small,
+            features = "risk.score1", label = TRUE, repel = TRUE,reduction = "tsne",pt.size=1.5) +
+            scale_colour_gradientn(colours = rev(brewer.pal(n = 12, name = "RdBu"))) +
+		 #scale_colour_gradientn(colours = rev(brewer.pal(n = 10, name = "Spectral")))+ 
+		ggtitle("risk.score")
+
+
+head(small[[]])
+VlnPlot(small, features = c("risk.score1"), 
+slot = "counts", log = TRUE,pt.size=1,split.by="Responderstatus")
+
+VlnPlot(subset(small,subset=Stage1=="diagnosis" & Responderstatus == c("good","poor")), features = c("risk.score1"), 
+slot = "counts", log = TRUE,pt.size=1,split.by="Responderstatus",col=c("turquoise","plum2"))
+
+VlnPlot(subset(small,subset=Stage1=="diagnosis" & BCRABLstatus == c("negative","positive")), features = c("risk.score1"), 
+slot = "counts", log = TRUE,pt.size=1,split.by="BCRABLstatus",col=c("turquoise","plum2"))
+
+poscells <- WhichCells(small, expression = NUMB > 0)
+small$NUMB.exp<- ifelse(colnames(small) %in% poscells, "Pos", "Neg")
+
+poscells <- WhichCells(small, expression = HK2 > 0)
+small$HK2.exp<- ifelse(colnames(small) %in% poscells, "Pos", "Neg")
+
+poscells <- WhichCells(small, expression = SELL > 0)
+small$SELL.exp<- ifelse(colnames(small) %in% poscells, "Pos", "Neg")
+
+poscells <- WhichCells(small, expression = CD63 > 0)
+small$CD63.exp<- ifelse(colnames(small) %in% poscells, "Pos", "Neg")
+
+poscells <- WhichCells(small, expression = LAMP2 > 0)
+small$LAMP2.exp<- ifelse(colnames(small) %in% poscells, "Pos", "Neg")
+
+
+table<-small@assays[["RNA"]]@counts
+
+meta<-small[[]]
+
+write.table(table, file='count.tsv', quote=FALSE, sep='\t', col.names = TRUE)
+write.table(meta, file='pheno.tsv', quote=FALSE, sep='\t', col.names = TRUE)
