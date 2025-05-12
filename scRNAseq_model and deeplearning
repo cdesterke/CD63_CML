@@ -1,0 +1,118 @@
+library(rms)
+
+library(tidyverse)
+
+data<-read_csv("filtredata.csv")
+
+library(skimr)
+skim(data)
+
+
+data$Responderstatus<-as.factor(data$Responderstatus)
+
+levels(data$Responderstatus)
+
+model<-lrm(Responderstatus~log(CD63+0.01)+log(LAMP2+0.01)+log(SELL+0.01)+log(NUMB+0.01)+log(HK2+0.01)+BCRABLstatus,data=data)
+model
+
+model<-lrm(Responderstatus~CD63.exp+LAMP2.exp+SELL.exp+NUMB.exp+HK2.exp+BCRABLstatus,data=data)
+model
+
+## the best
+model<-lrm(Responderstatus~CD63+LAMP2+SELL+NUMB+HK2+BCRABLstatus+nFeature_RNA,data=data)
+model
+
+
+model<-lrm(Responderstatus~risk.score21+nFeature_RNA+BCRABLstatus,data=data,x=TRUE,y=TRUE)
+model
+
+ddist <- datadist(data)
+options(datadist='ddist')
+
+nom <- nomogram(model, fun=plogis, funlabel="CML-CP response status")
+plot(nom)
+
+
+
+library(pROC)
+
+roc.list<-roc(Responderstatus~CD63+HK2+LAMP2+SELL+NUMB+nFeature_RNA+risk.score21,data=data)
+##+geom_abline(slope=1,intercept=1)
+library(ggplot2)
+g<-ggroc(roc.list,size=1)
+
+g+theme_minimal()+theme(text=element_text(size=18))+ scale_color_brewer(palette="Set2")+ggtitle("CML chronic phase response status")
+
+
+
+
+binomial <- glm(Responderstatus~risk.score21+nFeature_RNA+BCRABLstatus ,family="binomial" ,data=data)
+
+library(broom)
+library(broom.helpers)
+library(GGally)
+
+ggcoef_model(binomial,exponentiate=T,colour_guide=TRUE)+scale_color_brewer(palette="Set2")+theme(text=element_text(size=18))
+
+library(regplot)
+regplot(model,observation=data[5,], clickable=F, points=TRUE, droplines=T,rank="sd") 
+
+
+cal<-calibrate(model,method="boot",B=500)
+plot(cal,xlim=c(0,1),ylim=c(0,1))
+
+
+library(dplyr)
+data%>%select(CD63,LAMP2,SELL,NUMB,HK2,Responderstatus)->df
+
+library(caret)
+
+#split data
+set.seed(5678)
+dim(df)
+perm<-sample(450,295)
+app<-df[perm,]
+valid<-df[-perm,]
+
+##nnet
+set.seed(123)
+mod<-train(factor(Responderstatus)~CD63+LAMP2+SELL+NUMB+HK2,method="nnet",data=df,trControl=trainControl(method="cv"),
+	tuneGrid=expand.grid(.size=c(5,10,15),.decay=c(0,0.001,0.01,0.1)))
+
+
+
+install.packages("NeuralNetTools")
+library(NeuralNetTools)
+garson(mod)
+plotnet(mod_in=mod)
+results<-as.data.frame(mod[4])
+results$size.decay<-paste("S",results$size,"D",results$results.decay,sep='-')
+
+lekprofile(mod_in=mod)+ylab("CML-CP Responder status")
+
+
+install.packages("pdp")
+library(pdp)
+partial(mod,plot=T,pred.var="NUMB")
+
+install.packages("lime")
+library(lime)
+explanation<-lime(df,mod)
+exp<-explain(df[80:100,],n_labels=2,n_features=5,explanation)
+plot_explanations(exp)
+
+
+
+pred.prob<-function(object,newdata){
+	pred<-predict(object,newdata,type="prob")
+	prob.poor<-pred[,2]
+	mean(prob.poor)
+	}
+
+library(patchwork)
+pdp.hk2<-partial(mod,pred.var="HK2",pred.fun=pred.prob,plot=T)
+pdp.numb<-partial(mod,pred.var="NUMB",pred.fun=pred.prob,plot=T)
+pdp.hk2.numb<-partial(mod,pred.var=c("HK2","NUMB"),pred.fun=pred.prob,plot=T)
+library(gridExtra)
+library(grid)
+grid.arrange(pdp.hk2,pdp.numb,pdp.hk2.numb,ncol=3)
