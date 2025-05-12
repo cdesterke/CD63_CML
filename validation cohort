@@ -1,0 +1,45 @@
+acd<-read.csv2("acd.csv",row.names=1)
+
+data<-read.table("GSE100026_expressed_gene_RPKM.tsv",h=T,sep="\t")
+
+row.names(data)<-data$Gene
+
+library(dplyr)
+acd%>%inner_join(data,by=c("gene"="Gene"))->selection
+
+row.names(selection)<-selection$gene
+selection$gene<-NULL
+
+library(pheatmap)
+pheatmap(log(selection+0.01,10))
+selection<-log(selection+0.01,10)
+pheno<-as.data.frame(names(data))
+pheno<-pheno[-1,]
+pheno<-as.data.frame(pheno)
+pheno$group<-c(rep("CML.BC",5),rep("CML.CP",5),rep("HD",5))
+row.names(pheno)<-pheno$pheno
+pheno$pheno<-NULL
+
+library(pheatmap)
+pheatmap(selection,annotation=pheno,
+color = colorRampPalette(c("navy", "white", "firebrick3"))(50),
+clustering_method = "ward.D2",clustering_distance_cols = "euclidean",clustering_distance_rows = "euclidean")
+
+library(transpipe)
+pcatransellipses(selection,pheno,group="group",pal="Set1",alpha=0.5,names=F,x=1,y=2,level=0.65)
+pcatrans(selection,pheno,group="group",pal="Set1",alpha=1,names=F)
+
+
+
+ok<-selection[,1:10]
+annot<-pheno[1:10,]
+names(annot)<-
+library(pamr)
+complete <- ok[complete.cases(ok), ]
+complete<-as.matrix(complete)
+d <- list(x=complete,y=annot, geneid=as.character(row.names(complete)), genenames=paste(row.names(complete)))
+pamr.menu(d)
+
+
+write.table(selection,file="data.tsv",sep="\t")
+write.table(pheno,file="pheno.tsv",sep="\t")
