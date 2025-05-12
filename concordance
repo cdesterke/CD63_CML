@@ -1,0 +1,28 @@
+library(dplyr)
+
+train%>%inner_join(valid,by="id")->all
+
+all$sum<-abs(all$train.BC)+abs(all$valid.BC)
+
+## non intrication ifelse
+all%>%mutate(concordance.pos=ifelse(train.BC > 0 & valid.BC > 0, "positive_YES","other"))%>%
+				mutate(concordance.neg=ifelse(train.BC < 0 & valid.BC < 0, "negative_YES","other"))->all
+
+## intrication ifelse
+all%>%mutate(concordance=ifelse(train.BC > 0 & valid.BC > 0, "positive_YES",
+			ifelse(train.BC < 0 & valid.BC < 0, "negative_YES","other")))->all
+
+all%>%filter(concordance!="other")%>%arrange(desc(sum))->selection
+write.table(all,file="crossresults.tsv",sep="\t",row.names=F)
+library(ggplot2)
+library(ggrepel)
+ggplot(all,aes(train.BC,valid.BC))+
+	geom_point(aes(colour = concordance,size=sum))+
+	geom_text_repel(data=filter(all, concordance !="other"), aes(label=id))+
+#	geom_smooth(method = loess,se=F,colour="purple", size=0.5)+
+	theme_classic()+
+	scale_color_manual(values=c("turquoise","#999999","plum2"))+
+	theme(text = element_text(size = 16))+theme(legend.position="right")+
+	xlab("Blast crisis score (Traning GSE4170)")+
+	ylab("Blast crisis score (Validation GSE100026)")+
+	write.table(all,file="crossresults.tsv",sep="\t",row.names=F)ggtitle("Asymmetric HSCs in Blast crisis (cross validation)")
