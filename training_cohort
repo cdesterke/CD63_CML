@@ -1,0 +1,164 @@
+library(data.table)
+acd<-read.csv2("acd.csv",row.names=1)
+
+
+
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(tidyr)
+library(readr)
+
+pheno<-read.table( "radishphenodata.tsv",sep="\t")
+pheno$id<-NULL
+
+####imputation
+data<-read.table( "radishokdata.txt",sep="\t",h=T)
+data<-as.data.frame(data)
+row.names(data)<-data$gene
+data$gene<-NULL
+omit<-apply(data,1, function(x) sum(is.na(x)))
+data$omit<-omit
+data%>%arrange(desc(omit))%>%filter(omit<10)->small
+small$omit<-NULL
+trans<-t(small)
+trans<-as.data.frame(trans)
+library(dplyr)
+library(tidyr)
+trans %>% 
+  group_by(type) %>% 
+  mutate_if(is.numeric, ~replace_na(., mean(., na.rm = TRUE)))->imputed
+imputed<-as.data.frame(imputed)
+row.names(imputed)<-row.names(trans)
+imputed$type<-NULL
+data<-t(imputed)
+data<-as.data.frame(data)
+write.table(data,file="dataimputed.tsv",sep="\t")
+############
+
+data<-read_delim("GSE4170data.txt" ,delim="\t")
+
+pheno<-fread("GSE4170pheno.csv",h=T)
+
+pheno%>%dplyr::rename(id="V1")->pheno
+
+pheno<-as.data.frame(pheno)
+row.names(pheno)<-pheno$id
+
+pheno%>%filter(type=="chronic" | type=="blast.crisis")->pheno
+
+data<-as.data.frame(data)
+
+library(transpipe)
+
+ok<-filtermatrix(data)
+
+selection<-merge(acd,ok,by="row.names")
+
+row.names(selection)<-selection$gene
+
+selection$gene<-NULL
+
+selection$Row.names<-NULL
+
+selection[,row.names(pheno)]->selection
+
+
+## remove columns with NA
+dim(selection)
+selection<-selection[ , colSums(is.na(selection))==0]
+
+dim(selection)
+
+pheno<-pheno[colnames(selection),]
+dim(pheno)
+
+all(colnames(selection)==row.names(pheno))
+
+write.table(selection,file="data.tsv",sep="\t")
+write.table(pheno,file="phenoacd.tsv",sep="\t")
+ok<-selection
+library(pamr)
+complete <- ok[complete.cases(ok), ]
+complete<-as.matrix(complete)
+d <- list(x=complete,y=pheno$type, geneid=as.character(row.names(complete)), genenames=paste(row.names(complete)))
+pamr.menu(d)
+
+write.table(selection,file="data.tsv",sep="\t")
+write.table(pheno,file="pheno.tsv",sep="\t")
+
+
+pcatransellipses(selection,pheno,group="type",pal="Set1",alpha=1,names=F,x=1,y=2,level=0.75)
+
+
+library(pheatmap)
+pheno$id<-NULL
+
+pheatmap(selection, color = colorRampPalette(c("navy", "white", "firebrick3"))(50),
+annotation=pheno,clustering_method = "ward.D2",clustering_distance_cols = "manhattan",clustering_distance_rows = "euclidean",
+show_colnames=F)
+
+trans<-t(selection)
+trans<-as.data.frame(trans)
+all<-cbind(trans,pheno)
+all%>%mutate(blast.crisis=ifelse(type=="blast.crisis",1,0))->all
+all$blast.crisis<-as.factor(all$blast.crisis)
+all$type<-NULL
+
+write.table(all,file="all.tsv",sep="\t")
+save(all,file="all.rda")
+
+library(rms)
+
+all%>%select(blast.crisis,MFN2 , SELL , DNM1L , PINK1 , SEPTIN6 , SIRT7 , CD63)->small
+
+
+
+
+binomial <- glm(blast.crisis ~ DNM1L+JAM3+TEK+ATG12+MAP1LC3B+CDC42 ,family="binomial" ,data=all)
+
+library(broom)
+library(broom.helpers)
+library(GGally)
+
+ggcoef_model(binomial,exponentiate=T,colour_guide=TRUE)+scale_color_brewer(palette="Set2")+theme(text=element_text(size=18))
+
+
+library(pROC)
+
+roc.list<-roc(blast.crisis~DNM1L+JAM3+TEK+ATG12+MAP1LC3B+CDC42,data=all)
+##+geom_abline(slope=1,intercept=1)
+g<-ggroc(roc.list,size=1)
+g+theme_minimal()+theme(text=element_text(size=18))+ scale_color_brewer(palette="Set2")+ggtitle("CML Blast crisis status")
+
+
+auc<-read_csv("auc.csv")
+
+library(ggplot2)
+
+
+ggplot(data=auc,aes(x=reorder(gene,AUC),y=AUC))+geom_bar(stat="identity",fill="turquoise")+
+			#ylim(0,max($NLP)+0.5)+
+			#coord_flip()+
+			theme_minimal()+
+			xlab("Asymmetric HSC genes")+
+			geom_text(aes(label=round(AUC,2)),hjust=+0.5, vjust=1,color="navy",position= position_dodge(0),size=8,angle=0)+
+			ggtitle("CML blast crisis risk")+
+			theme(text = element_text(size = 18))+theme(legend.position="none")+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+
+
+
+
+
+model <- lrm(blast.crisis ~ DNM1L+JAM3+TEK+ATG12+MAP1LC3B+CDC42  ,data=all)
+
+
+
+
+
+ddist <- datadist(all)
+options(datadist='ddist')
+
+nom <- nomogram(model, fun=plogis, funlabel="Risk of Blast crisis")
+plot(nom)
