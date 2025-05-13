@@ -1,0 +1,145 @@
+library(monocle)
+library(Seurat)
+
+data<-sce@assays[["RNA"]]@counts
+
+pheno<-sce[[]]
+
+all(row.names(pheno)==colnames(data))
+
+mat<-as.matrix(data)
+colonnes<-as.data.frame(colnames(mat))
+colonnes$group<-pheno$Responderstatus
+
+colnames(colonnes)<-c("id","group")
+row.names(colonnes)<-colonnes$id
+pd <- new("AnnotatedDataFrame", data = colonnes)
+
+
+genes<-as.data.frame(row.names(data))
+colnames(genes)<-"gene_short_name"
+row.names(genes)<-genes$gene_short_name
+fd <- new("AnnotatedDataFrame", data = genes)
+cds <- newCellDataSet(mat, phenoData = pd,featureData = fd,expressionFamily=negbinomial())
+
+load("monoclecds.rda")
+
+
+
+
+table(pData(cds)$CellType)
+#table(pData(cds)$group)
+x<-pData(cds)
+
+
+
+write.table(x,file="x.tsv",sep="\t",row.names=F)
+cds <- detectGenes(cds, min_expr = 0.05)
+
+
+my_feat <- fData(cds)
+my_feat$id<-my_feat$gene_short_name
+head(my_feat)
+cds <- estimateSizeFactors(cds)
+cds <- estimateDispersions(cds)
+#plot_pc_variance_explained(cds, return_all = FALSE)
+cds <- reduceDimension(cds, max_components = 2, num_dim = 10, reduction_method = 'tSNE', verbose = TRUE)
+
+
+cds <- clusterCells(cds)
+table(pData(cds)$group)
+#ggplot graph cell type
+library(ggplot2)
+#jpeg(file = "pie.jpg",  width = 400, height = 400)
+pie <- ggplot(pData(cds),
+aes(x = factor(1), fill = factor(group))) + geom_bar(width = 1)
+pie + coord_polar(theta = "y") +
+theme(axis.title.x = element_blank(), axis.title.y = element_blank())
+dev.off()
+
+
+
+plot_cell_clusters(cds, 1, 2, color = "group") +  facet_wrap(~group)
+plot_cell_clusters(cds, 1, 2, color = "pheno",cell_size=2 )
+plot_cell_clusters(cds, 1, 2, color = "group", markers = c("CD63"))
+save(cds,file="monocle.rda")
+
+#differential expressed genes against cell type
+cds <- detectGenes(cds, min_expr = 0.1)
+print(head(fData(cds)))
+print(head(pData(cds)))
+head(fData(cds))
+#cluster cells with hiearchy
+cds <- clusterCells(cds) 
+
+expressed_genes <-  row.names(subset(fData(cds),num_cells_expressed >= 100))
+diff_test_res <- differentialGeneTest(cds[expressed_genes,],fullModelFormulaStr = "~group")
+
+sig_gene_names <- row.names(subset(diff_test_res, qval < 0.05))
+write.table(diff_test_res, file="DEGenes.txt")
+my_ordering_genes <- row.names(diff_test_res)[order(diff_test_res$qval)][1:nrow(sig_gene_names)]
+cds2 <- setOrderingFilter(cds, ordering_genes = my_ordering_genes)
+
+############################
+write.table(pData(cds),file="phenotype.txt")
+write.table(diff_test_res,file="difexptrajectory.txt")
+save(cds,file="monoclecds.rda")
+save(cds2,file="monoclecdsfiltre.rda")
+
+load(file="monoclecdsfiltre.rda")
+load(file="monoclecdsfiltre.rda")
+library(data.table)
+diff_test_res<-fread("difexptrajectory.txt")
+diff_test_res<-as.data.frame(diff_test_res)
+row.names(diff_test_res)<-diff_test_res$V1
+
+difexptrajectory<-read.table("difexptrajectory.txt",h=T)
+
+
+#dimensional reduction and gene selection
+cds2 <- reduceDimension(cds2, method = 'DDRTree')
+conca <- row.names(diff_test_res)[order(diff_test_res$qval)][1:75] 
+
+cds2 <- orderCells(cds2)
+
+
+#build graphs on trajectory 
+plot_cell_clusters(cds2, color_by = 'as.factor(CellType)',markers="TRIM28",cell_size=2 )+  facet_wrap(~group)
+plot_cell_clusters(cds2, color_by = 'as.factor(CellType)',markers="HK2",cell_size=2 )+  facet_wrap(~group)
+
+
+jpeg(file = "trajectory.jpg",  width = 900, height = 450)
+plot_cell_trajectory(cds2, color_by = "CellType",cell_size=1.5)
+dev.off()
+plot_cell_trajectory(cds2, color_by = "group",cell_size=1.5)
+plot_cell_trajectory(cds2, color_by = "Pseudotime",cell_size=1.5)
+
+jpeg(file = "trajectoryCD63.jpg",  width = 900, height = 450)
+plot_cell_trajectory(cds2, color_by = "group",markers="CD63",markers_linear = T,show_branch_points=FALSE)
+dev.off()
+
+
+
+
+plot_cell_trajectory(cds2, color_by = "group") 
+
+
+
+plot_pseudotime_heatmap(cds2[conca,],cores = 8,show_rownames = TRUE,return_heatmap = TRUE,cluster_rows = TRUE)
+
+pdf(file = "Heatmap.pdf")
+my_pseudotime_cluster <- plot_pseudotime_heatmap(cds2[conca,],cores = 8,
+show_rownames = TRUE,return_heatmap = TRUE,cluster_rows = TRUE)
+dev.off()
+
+
+plot_genes_in_pseudotime(cds2[c("CD63","CD52","RAD52","PIM2"),],cell_size = 1, color_by = "group",ncol = 1)
+
+
+#save data
+write.table(pData(cds),file="phenotype.txt")
+write.table(diff_test_res,file="difexptrajectory.txt")
+save(cds,file="monoclecds.rda")
+save(cds2,file="monoclecdsfiltre.rda")
+### end of the code
+
