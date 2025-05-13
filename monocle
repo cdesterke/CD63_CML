@@ -77,7 +77,7 @@ diff_test_res <- differentialGeneTest(cds[expressed_genes,],fullModelFormulaStr 
 
 sig_gene_names <- row.names(subset(diff_test_res, qval < 0.05))
 write.table(diff_test_res, file="DEGenes.txt")
-my_ordering_genes <- row.names(diff_test_res)[order(diff_test_res$qval)][1:nrow(sig_gene_names)]
+my_ordering_genes <- row.names(diff_test_res)[order(diff_test_res$qval)][1:length(sig_gene_names)]
 cds2 <- setOrderingFilter(cds, ordering_genes = my_ordering_genes)
 
 ############################
